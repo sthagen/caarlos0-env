@@ -3,6 +3,7 @@ package env
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -571,7 +572,7 @@ func TestInvalidDuration(t *testing.T) {
 	defer os.Clearenv()
 
 	cfg := Config{}
-	assert.EqualError(t, Parse(&cfg), "env: parse error on field \"Duration\" of type \"time.Duration\": unable to parser duration: time: invalid duration should-be-a-valid-duration")
+	assert.EqualError(t, Parse(&cfg), "env: parse error on field \"Duration\" of type \"time.Duration\": unable to parse duration: time: invalid duration should-be-a-valid-duration")
 }
 
 func TestInvalidDurations(t *testing.T) {
@@ -579,7 +580,7 @@ func TestInvalidDurations(t *testing.T) {
 	defer os.Clearenv()
 
 	cfg := Config{}
-	assert.EqualError(t, Parse(&cfg), "env: parse error on field \"Durations\" of type \"[]time.Duration\": unable to parser duration: time: invalid duration contains-an-invalid-duration")
+	assert.EqualError(t, Parse(&cfg), "env: parse error on field \"Durations\" of type \"[]time.Duration\": unable to parse duration: time: invalid duration contains-an-invalid-duration")
 }
 
 func TestParseStructWithoutEnvTag(t *testing.T) {
@@ -634,9 +635,31 @@ func TestNoErrorRequiredSet(t *testing.T) {
 	assert.Equal(t, "", cfg.IsRequired)
 }
 
+func TestErrorRequiredWithDefault(t *testing.T) {
+	type config struct {
+		IsRequired string `env:"IS_REQUIRED,required" envDefault:"important"`
+	}
+
+	cfg := &config{}
+
+	os.Setenv("IS_REQUIRED", "")
+	defer os.Clearenv()
+	assert.NoError(t, Parse(cfg))
+	assert.Equal(t, "", cfg.IsRequired)
+}
+
 func TestErrorRequiredNotSet(t *testing.T) {
 	type config struct {
 		IsRequired string `env:"IS_REQUIRED,required"`
+	}
+
+	cfg := &config{}
+	assert.EqualError(t, Parse(cfg), "env: required environment variable \"IS_REQUIRED\" is not set")
+}
+
+func TestErrorRequiredNotSetWithDefault(t *testing.T) {
+	type config struct {
+		IsRequired string `env:"IS_REQUIRED,required" envDefault:"important"`
 	}
 
 	cfg := &config{}
@@ -958,7 +981,7 @@ func TestParseInvalidURL(t *testing.T) {
 	}
 	var cfg config
 	os.Setenv("EXAMPLE_URL_2", "nope://s s/")
-	assert.EqualError(t, Parse(&cfg), "env: parse error on field \"ExampleURL\" of type \"url.URL\": unable parse URL: parse nope://s s/: invalid character \" \" in host name")
+	assert.EqualError(t, Parse(&cfg), "env: parse error on field \"ExampleURL\" of type \"url.URL\": unable to parse URL: parse nope://s s/: invalid character \" \" in host name")
 }
 
 func ExampleParse() {
@@ -1055,4 +1078,68 @@ func ExampleParseWithFuncs() {
 	fmt.Println(c.Thing.desc)
 	// Output:
 	// my thing
+}
+
+func TestFile(t *testing.T) {
+	type config struct {
+		SecretKey string `env:"SECRET_KEY,file"`
+	}
+
+	file, err := ioutil.TempFile("", "sec_key_*")
+	assert.NoError(t, err)
+	err = ioutil.WriteFile(file.Name(), []byte("secret"), 0660)
+	assert.NoError(t, err)
+	defer func() {
+		err = os.Remove(file.Name())
+		assert.NoError(t, err)
+	}()
+
+	defer os.Clearenv()
+	os.Setenv("SECRET_KEY", file.Name())
+
+	cfg := config{}
+	err = Parse(&cfg)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "secret", cfg.SecretKey)
+
+}
+
+func TestFileNoParam(t *testing.T) {
+	type config struct {
+		SecretKey string `env:"SECRET_KEY,file"`
+	}
+	defer os.Clearenv()
+	cfg := config{}
+	err := Parse(&cfg)
+
+	assert.Error(t, err)
+	assert.EqualError(t, err, `env: could not load content of file "" from variable SECRET_KEY: open : no such file or directory`)
+}
+
+func TestFileWithDefault(t *testing.T) {
+	type config struct {
+		SecretKey string `env:"SECRET_KEY,file" envDefault:"${FILE}" envExpand:"true"`
+	}
+	defer os.Clearenv()
+
+	file, err := ioutil.TempFile("", "sec_key_*")
+	assert.NoError(t, err)
+	err = ioutil.WriteFile(file.Name(), []byte("secret"), 0660)
+	assert.NoError(t, err)
+	defer func() {
+		err = os.Remove(file.Name())
+		assert.NoError(t, err)
+	}()
+
+	defer os.Clearenv()
+	os.Setenv("FILE", file.Name())
+
+	cfg := config{}
+
+	err = Parse(&cfg)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "secret", cfg.SecretKey)
+
 }
