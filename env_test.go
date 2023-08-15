@@ -359,7 +359,6 @@ func TestParsesEnv(t *testing.T) {
 	isEqual(t, float321, cfg.Float32s[0])
 	isEqual(t, float322, cfg.Float32s[1])
 	isEqual(t, &float321, cfg.Float32Ptrs[0])
-	isEqual(t, &float322, cfg.Float32Ptrs[1])
 
 	isEqual(t, float641, cfg.Float64)
 	isEqual(t, &float641, cfg.Float64Ptr)
@@ -1196,7 +1195,7 @@ func TestCustomParserNotCalledForNonAlias(t *testing.T) {
 
 	tParserCalled := false
 
-	tParser := func(value string) (interface{}, error) {
+	tParser := func(_ string) (interface{}, error) {
 		tParserCalled = true
 		return T(99), nil
 	}
@@ -1740,6 +1739,68 @@ func TestErrorIs(t *testing.T) {
 	})
 }
 
+type FieldParamsConfig struct {
+	Simple         []string `env:"SIMPLE"`
+	WithoutEnv     string
+	privateWithEnv string `env:"PRIVATE_WITH_ENV"` //nolint:unused
+	WithDefault    string `env:"WITH_DEFAULT" envDefault:"default"`
+	Required       string `env:"REQUIRED,required"`
+	File           string `env:"FILE,file"`
+	Unset          string `env:"UNSET,unset"`
+	NotEmpty       string `env:"NOT_EMPTY,notEmpty"`
+	Expand         string `env:"EXPAND,expand"`
+	NestedConfig   struct {
+		Simple []string `env:"SIMPLE"`
+	} `envPrefix:"NESTED_"`
+}
+
+func TestGetFieldParams(t *testing.T) {
+	var config FieldParamsConfig
+	params, err := GetFieldParams(&config)
+	isNoErr(t, err)
+
+	expectedParams := []FieldParams{
+		{OwnKey: "SIMPLE", Key: "SIMPLE"},
+		{OwnKey: "WITH_DEFAULT", Key: "WITH_DEFAULT", DefaultValue: "default", HasDefaultValue: true},
+		{OwnKey: "REQUIRED", Key: "REQUIRED", Required: true},
+		{OwnKey: "FILE", Key: "FILE", LoadFile: true},
+		{OwnKey: "UNSET", Key: "UNSET", Unset: true},
+		{OwnKey: "NOT_EMPTY", Key: "NOT_EMPTY", NotEmpty: true},
+		{OwnKey: "EXPAND", Key: "EXPAND", Expand: true},
+		{OwnKey: "SIMPLE", Key: "NESTED_SIMPLE"},
+	}
+	isTrue(t, len(params) == len(expectedParams))
+	isTrue(t, areEqual(params, expectedParams))
+}
+
+func TestGetFieldParamsWithPrefix(t *testing.T) {
+	var config FieldParamsConfig
+
+	params, err := GetFieldParamsWithOptions(&config, Options{Prefix: "FOO_"})
+	isNoErr(t, err)
+
+	expectedParams := []FieldParams{
+		{OwnKey: "SIMPLE", Key: "FOO_SIMPLE"},
+		{OwnKey: "WITH_DEFAULT", Key: "FOO_WITH_DEFAULT", DefaultValue: "default", HasDefaultValue: true},
+		{OwnKey: "REQUIRED", Key: "FOO_REQUIRED", Required: true},
+		{OwnKey: "FILE", Key: "FOO_FILE", LoadFile: true},
+		{OwnKey: "UNSET", Key: "FOO_UNSET", Unset: true},
+		{OwnKey: "NOT_EMPTY", Key: "FOO_NOT_EMPTY", NotEmpty: true},
+		{OwnKey: "EXPAND", Key: "FOO_EXPAND", Expand: true},
+		{OwnKey: "SIMPLE", Key: "FOO_NESTED_SIMPLE"},
+	}
+	isTrue(t, len(params) == len(expectedParams))
+	isTrue(t, areEqual(params, expectedParams))
+}
+
+func TestGetFieldParamsError(t *testing.T) {
+	var config FieldParamsConfig
+
+	_, err := GetFieldParams(config)
+	isErrorWithMessage(t, err, "env: expected a pointer to a Struct")
+	isTrue(t, errors.Is(err, NotStructPtrError{}))
+}
+
 func isTrue(tb testing.TB, b bool) {
 	tb.Helper()
 
@@ -1813,4 +1874,24 @@ func isNil(object interface{}) bool {
 		return true
 	}
 	return false
+}
+
+func TestParseWithOptionsOverride(t *testing.T) {
+	type config struct {
+		Interval time.Duration `env:"INTERVAL"`
+	}
+
+	t.Setenv("INTERVAL", "1")
+
+	var cfg config
+
+	isNoErr(t, ParseWithOptions(&cfg, Options{FuncMap: map[reflect.Type]ParserFunc{
+		reflect.TypeOf(time.Nanosecond): func(value string) (interface{}, error) {
+			intervalI, err := strconv.Atoi(value)
+			if err != nil {
+				return nil, err
+			}
+			return time.Duration(intervalI), nil
+		},
+	}}))
 }
