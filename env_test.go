@@ -108,6 +108,11 @@ type Config struct {
 	DurationPtr  *time.Duration   `env:"DURATION"`
 	DurationPtrs []*time.Duration `env:"DURATIONS"`
 
+	Location     time.Location    `env:"LOCATION"`
+	Locations    []time.Location  `env:"LOCATIONS"`
+	LocationPtr  *time.Location   `env:"LOCATION"`
+	LocationPtrs []*time.Location `env:"LOCATIONS"`
+
 	Unmarshaler     unmarshaler    `env:"UNMARSHALER"`
 	UnmarshalerPtr  *unmarshaler   `env:"UNMARSHALER"`
 	Unmarshalers    []unmarshaler  `env:"UNMARSHALERS"`
@@ -118,7 +123,7 @@ type Config struct {
 	URLs    []url.URL  `env:"URLS"`
 	URLPtrs []*url.URL `env:"URLS"`
 
-	StringWithdefault string `env:"DATABASE_URL" envDefault:"postgres://localhost:5432/db"`
+	StringWithDefault string `env:"DATABASE_URL" envDefault:"postgres://localhost:5432/db"`
 
 	CustomSeparator []string `env:"SEPSTRINGS" envSeparator:":"`
 
@@ -254,6 +259,12 @@ func TestParsesEnv(t *testing.T) {
 	t.Setenv("DURATION", tos(duration1))
 	t.Setenv("DURATIONS", toss(duration1, duration2))
 
+	location1 := time.UTC
+	location2, errLoadLocation := time.LoadLocation("Europe/Berlin")
+	isNoErr(t, errLoadLocation)
+	t.Setenv("LOCATION", tos(location1))
+	t.Setenv("LOCATIONS", toss(location1, location2))
+
 	unmarshaler1 := unmarshaler{time.Minute}
 	unmarshaler2 := unmarshaler{time.Millisecond * 1232}
 	t.Setenv("UNMARSHALER", tos(unmarshaler1.Duration))
@@ -377,6 +388,13 @@ func TestParsesEnv(t *testing.T) {
 	isEqual(t, &duration1, cfg.DurationPtrs[0])
 	isEqual(t, &duration2, cfg.DurationPtrs[1])
 
+	isEqual(t, *location1, cfg.Location)
+	isEqual(t, location1, cfg.LocationPtr)
+	isEqual(t, *location1, cfg.Locations[0])
+	isEqual(t, *location2, cfg.Locations[1])
+	isEqual(t, location1, cfg.LocationPtrs[0])
+	isEqual(t, location2, cfg.LocationPtrs[1])
+
 	isEqual(t, unmarshaler1, cfg.Unmarshaler)
 	isEqual(t, &unmarshaler1, cfg.UnmarshalerPtr)
 	isEqual(t, unmarshaler1, cfg.Unmarshalers[0])
@@ -391,7 +409,7 @@ func TestParsesEnv(t *testing.T) {
 	isEqual(t, url1, cfg.URLPtrs[0].String())
 	isEqual(t, url2, cfg.URLPtrs[1].String())
 
-	isEqual(t, "postgres://localhost:5432/db", cfg.StringWithdefault)
+	isEqual(t, "postgres://localhost:5432/db", cfg.StringWithDefault)
 	isEqual(t, nonDefinedStr, cfg.NonDefined.String)
 	isEqual(t, nonDefinedStr, cfg.NestedNonDefined.NonDefined.String)
 
@@ -632,8 +650,8 @@ func TestParsesEnvInnerFailsMultipleErrors(t *testing.T) {
 	err := Parse(&config{})
 	isErrorWithMessage(t, err, `env: required environment variable "NAME" is not set; parse error on field "Number" of type "int": strconv.ParseInt: parsing "not-a-number": invalid syntax; required environment variable "AGE" is not set`)
 	isTrue(t, errors.Is(err, ParseError{}))
-	isTrue(t, errors.Is(err, EnvVarIsNotSetError{}))
-	isTrue(t, errors.Is(err, EnvVarIsNotSetError{}))
+	isTrue(t, errors.Is(err, VarIsNotSetError{}))
+	isTrue(t, errors.Is(err, VarIsNotSetError{}))
 }
 
 func TestParsesEnvInnerNil(t *testing.T) {
@@ -801,6 +819,20 @@ func TestInvalidDurations(t *testing.T) {
 	isTrue(t, errors.Is(err, ParseError{}))
 }
 
+func TestInvalidLocation(t *testing.T) {
+	t.Setenv("LOCATION", "should-be-a-valid-location")
+	err := Parse(&Config{})
+	isErrorWithMessage(t, err, `env: parse error on field "Location" of type "time.Location": unable to parse location: unknown time zone should-be-a-valid-location; parse error on field "LocationPtr" of type "*time.Location": unable to parse location: unknown time zone should-be-a-valid-location`)
+	isTrue(t, errors.Is(err, ParseError{}))
+}
+
+func TestInvalidLocations(t *testing.T) {
+	t.Setenv("LOCATIONS", "should-be-a-valid-location,UTC,Europe/Berlin")
+	err := Parse(&Config{})
+	isErrorWithMessage(t, err, `env: parse error on field "Locations" of type "[]time.Location": unable to parse location: unknown time zone should-be-a-valid-location; parse error on field "LocationPtrs" of type "[]*time.Location": unable to parse location: unknown time zone should-be-a-valid-location`)
+	isTrue(t, errors.Is(err, ParseError{}))
+}
+
 func TestParseStructWithoutEnvTag(t *testing.T) {
 	cfg := Config{}
 	isNoErr(t, Parse(&cfg))
@@ -900,7 +932,7 @@ func TestErrorRequiredNotSet(t *testing.T) {
 	}
 	err := Parse(&config{})
 	isErrorWithMessage(t, err, `env: required environment variable "IS_REQUIRED" is not set`)
-	isTrue(t, errors.Is(err, EnvVarIsNotSetError{}))
+	isTrue(t, errors.Is(err, VarIsNotSetError{}))
 }
 
 func TestNoErrorNotEmptySet(t *testing.T) {
@@ -926,7 +958,7 @@ func TestErrorNotEmptySet(t *testing.T) {
 	}
 	err := Parse(&config{})
 	isErrorWithMessage(t, err, `env: environment variable "IS_REQUIRED" should not be empty`)
-	isTrue(t, errors.Is(err, EmptyEnvVarError{}))
+	isTrue(t, errors.Is(err, EmptyVarError{}))
 }
 
 func TestErrorRequiredAndNotEmptySet(t *testing.T) {
@@ -936,7 +968,7 @@ func TestErrorRequiredAndNotEmptySet(t *testing.T) {
 	}
 	err := Parse(&config{})
 	isErrorWithMessage(t, err, `env: environment variable "IS_REQUIRED" should not be empty`)
-	isTrue(t, errors.Is(err, EmptyEnvVarError{}))
+	isTrue(t, errors.Is(err, EmptyVarError{}))
 }
 
 func TestErrorRequiredNotSetWithDefault(t *testing.T) {
@@ -1016,7 +1048,7 @@ func TestParseUnsetRequireOptions(t *testing.T) {
 
 	err := Parse(&cfg)
 	isErrorWithMessage(t, err, `env: required environment variable "PASSWORD" is not set`)
-	isTrue(t, errors.Is(err, EnvVarIsNotSetError{}))
+	isTrue(t, errors.Is(err, VarIsNotSetError{}))
 	t.Setenv("PASSWORD", "superSecret")
 	isNoErr(t, Parse(&cfg))
 
@@ -1435,7 +1467,7 @@ func TestFileNoParamRequired(t *testing.T) {
 
 	err := Parse(&config{})
 	isErrorWithMessage(t, err, `env: required environment variable "SECRET_KEY" is not set`)
-	isTrue(t, errors.Is(err, EnvVarIsNotSetError{}))
+	isTrue(t, errors.Is(err, VarIsNotSetError{}))
 }
 
 func TestFileBadFile(t *testing.T) {
@@ -1525,11 +1557,11 @@ func TestRequiredIfNoDefOption(t *testing.T) {
 	t.Run("missing", func(t *testing.T) {
 		err := ParseWithOptions(&cfg, Options{RequiredIfNoDef: true})
 		isErrorWithMessage(t, err, `env: required environment variable "NAME" is not set; required environment variable "FRUIT" is not set`)
-		isTrue(t, errors.Is(err, EnvVarIsNotSetError{}))
+		isTrue(t, errors.Is(err, VarIsNotSetError{}))
 		t.Setenv("NAME", "John")
 		err = ParseWithOptions(&cfg, Options{RequiredIfNoDef: true})
 		isErrorWithMessage(t, err, `env: required environment variable "FRUIT" is not set`)
-		isTrue(t, errors.Is(err, EnvVarIsNotSetError{}))
+		isTrue(t, errors.Is(err, VarIsNotSetError{}))
 	})
 
 	t.Run("all set", func(t *testing.T) {
@@ -1561,7 +1593,7 @@ func TestRequiredIfNoDefNested(t *testing.T) {
 
 		err := ParseWithOptions(&cfg, Options{RequiredIfNoDef: true})
 		isErrorWithMessage(t, err, `env: required environment variable "SERVER_PORT" is not set`)
-		isTrue(t, errors.Is(err, EnvVarIsNotSetError{}))
+		isTrue(t, errors.Is(err, VarIsNotSetError{}))
 	})
 
 	t.Run("all set", func(t *testing.T) {
@@ -2123,7 +2155,7 @@ func TestIssue298ErrorNestedFieldRequiredNotSet(t *testing.T) {
 	cfg := ComplexConfig{}
 	err := Parse(&cfg)
 	isErrorWithMessage(t, err, `env: required environment variable "FOO_0_STR" is not set`)
-	isTrue(t, errors.Is(err, EnvVarIsNotSetError{}))
+	isTrue(t, errors.Is(err, VarIsNotSetError{}))
 }
 
 func TestIssue320(t *testing.T) {
@@ -2144,4 +2176,17 @@ func TestIssue320(t *testing.T) {
 	isEqual(t, cfg.Foo, nil)
 	isEqual(t, cfg.Bar, nil)
 	isEqual(t, cfg.Baz, nil)
+}
+
+func TestParseWithOptionsRenamedDefault(t *testing.T) {
+	type config struct {
+		Str string `env:"STR" envDefault:"foo" myDefault:"bar"`
+	}
+
+	cfg := &config{}
+	isNoErr(t, ParseWithOptions(cfg, Options{DefaultValueTagName: "myDefault"}))
+	isEqual(t, "bar", cfg.Str)
+
+	isNoErr(t, Parse(cfg))
+	isEqual(t, "foo", cfg.Str)
 }
