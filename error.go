@@ -6,7 +6,8 @@ import (
 	"strings"
 )
 
-// An aggregated error wrapper to combine gathered errors. This allows either to display all errors or convert them individually
+// An aggregated error wrapper to combine gathered errors.
+// This allows either to display all errors or convert them individually
 // List of the available errors
 // ParseError
 // NotStructPtrError
@@ -38,6 +39,11 @@ func (e AggregateError) Error() string {
 	}
 
 	return strings.TrimRight(sb.String(), ";")
+}
+
+// Unwrap implements std errors.Join go1.20 compatibility
+func (e AggregateError) Unwrap() []error {
+	return e.Errors
 }
 
 // Is conforms with errors.Is.

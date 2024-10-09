@@ -125,7 +125,12 @@ type ParserFunc func(v string) (interface{}, error)
 type OnSetFn func(tag string, value interface{}, isDefault bool)
 
 // processFieldFn is a function which takes all information about a field and processes it.
-type processFieldFn func(refField reflect.Value, refTypeField reflect.StructField, opts Options, fieldParams FieldParams) error
+type processFieldFn func(
+	refField reflect.Value,
+	refTypeField reflect.StructField,
+	opts Options,
+	fieldParams FieldParams,
+) error
 
 // Options for the parser.
 type Options struct {
@@ -134,6 +139,9 @@ type Options struct {
 
 	// TagName specifies another tag name to use rather than the default 'env'.
 	TagName string
+
+	// PrefixTagName specifies another prefix tag name to use rather than the default 'envPrefix'.
+	PrefixTagName string
 
 	// DefaultValueTagName specifies another default tag name to use rather than the default 'envDefault'.
 	DefaultValueTagName string
@@ -173,6 +181,7 @@ func (opts *Options) getRawEnv(s string) string {
 func defaultOptions() Options {
 	return Options{
 		TagName:             "env",
+		PrefixTagName:       "envPrefix",
 		DefaultValueTagName: "envDefault",
 		Environment:         toMap(os.Environ()),
 		FuncMap:             defaultTypeParsers(),
@@ -184,6 +193,9 @@ func customOptions(opt Options) Options {
 	defOpts := defaultOptions()
 	if opt.TagName == "" {
 		opt.TagName = defOpts.TagName
+	}
+	if opt.PrefixTagName == "" {
+		opt.PrefixTagName = defOpts.PrefixTagName
 	}
 	if opt.DefaultValueTagName == "" {
 		opt.DefaultValueTagName = defOpts.DefaultValueTagName
@@ -209,6 +221,7 @@ func optionsWithSliceEnvPrefix(opts Options, index int) Options {
 	return Options{
 		Environment:           opts.Environment,
 		TagName:               opts.TagName,
+		PrefixTagName:         opts.PrefixTagName,
 		DefaultValueTagName:   opts.DefaultValueTagName,
 		RequiredIfNoDef:       opts.RequiredIfNoDef,
 		OnSet:                 opts.OnSet,
@@ -223,10 +236,11 @@ func optionsWithEnvPrefix(field reflect.StructField, opts Options) Options {
 	return Options{
 		Environment:           opts.Environment,
 		TagName:               opts.TagName,
+		PrefixTagName:         opts.PrefixTagName,
 		DefaultValueTagName:   opts.DefaultValueTagName,
 		RequiredIfNoDef:       opts.RequiredIfNoDef,
 		OnSet:                 opts.OnSet,
-		Prefix:                opts.Prefix + field.Tag.Get("envPrefix"),
+		Prefix:                opts.Prefix + field.Tag.Get(opts.PrefixTagName),
 		UseFieldNameByDefault: opts.UseFieldNameByDefault,
 		FuncMap:               opts.FuncMap,
 		rawEnvVars:            opts.rawEnvVars,
@@ -332,7 +346,12 @@ func doParse(ref reflect.Value, processField processFieldFn, opts Options) error
 	return agrErr
 }
 
-func doParseField(refField reflect.Value, refTypeField reflect.StructField, processField processFieldFn, opts Options) error {
+func doParseField(
+	refField reflect.Value,
+	refTypeField reflect.StructField,
+	processField processFieldFn,
+	opts Options,
+) error {
 	if !refField.CanSet() {
 		return nil
 	}
@@ -559,7 +578,12 @@ func parseFieldParams(field reflect.StructField, opts Options) (FieldParams, err
 func get(fieldParams FieldParams, opts Options) (val string, err error) {
 	var exists, isDefault bool
 
-	val, exists, isDefault = getOr(fieldParams.Key, fieldParams.DefaultValue, fieldParams.HasDefaultValue, opts.Environment)
+	val, exists, isDefault = getOr(
+		fieldParams.Key,
+		fieldParams.DefaultValue,
+		fieldParams.HasDefaultValue,
+		opts.Environment,
+	)
 
 	if fieldParams.Expand {
 		val = os.Expand(val, opts.getRawEnv)
