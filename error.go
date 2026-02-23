@@ -35,7 +35,7 @@ func (e AggregateError) Error() string {
 	sb.WriteString("env:")
 
 	for _, err := range e.Errors {
-		sb.WriteString(fmt.Sprintf(" %v;", err.Error()))
+		fmt.Fprintf(&sb, " %v;", err.Error())
 	}
 
 	return strings.TrimRight(sb.String(), ";")

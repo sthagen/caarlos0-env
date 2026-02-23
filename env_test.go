@@ -32,7 +32,7 @@ func (d *unmarshaler) UnmarshalText(data []byte) (err error) {
 	return err
 }
 
-type Config struct { //nolint:maligned
+type Config struct {
 	String     string    `env:"STRING"`
 	StringPtr  *string   `env:"STRING"`
 	Strings    []string  `env:"STRINGS"`
